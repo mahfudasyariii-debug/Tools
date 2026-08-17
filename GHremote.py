@@ -61,10 +61,10 @@ TEXT = {
         "repository": "repository",
         "filename_empty": "nama file kosong.",
         "invalid_choice": "pilihan tidak valid.",
-        "upload_test": "uji unggah",
-        "update_test": "uji update",
-        "delete_test": "uji hapus",
-        "select_file": "pilih file",
+        "upload_test": "Unggah",
+        "update_test": "Update",
+        "delete_test": "Hapus",
+        "select_file": "Pilih file",
         "current_folder": "folder saat ini",
         "parent": "naik satu folder",
         "empty_folder": "folder ini kosong.",
@@ -360,7 +360,7 @@ def choose_file(language, platform):
 
         for number, item in enumerate(items, 1):
             if item.is_dir():
-                label = item.name + "/"
+                label = f"📁 {item.name}/"
                 print(f"{color(f'[{number}]', YELLOW)} {color(label, CYAN)}")
             else:
                 print(
