@@ -50,6 +50,7 @@ TEXT = {
         "android": "android (termux)",
         "linux": "linux",
         "upload": "unggah",
+        "update": "update",
         "delete": "hapus",
         "history": "riwayat",
         "status": "status repositori",
@@ -61,6 +62,7 @@ TEXT = {
         "filename_empty": "nama file kosong.",
         "invalid_choice": "pilihan tidak valid.",
         "upload_test": "uji unggah",
+        "update_test": "uji update",
         "delete_test": "uji hapus",
         "select_file": "pilih file",
         "current_folder": "folder saat ini",
@@ -86,9 +88,12 @@ TEXT = {
         "commit_failed": "commit gagal.",
         "push_failed": "push gagal.",
         "upload_success": "unggah berhasil.",
+        "update_success": "update berhasil.",
         "delete_success": "penghapusan berhasil.",
         "file_exists": "file sudah ada di repository.",
         "file_not_found": "file tidak ditemukan di repository.",
+        "select_target_file": "pilih file target di repository",
+        "replacing_file": "mengganti file lama dengan file baru...",
         "no_files": "tidak ada file yang dapat dipilih.",
         "no_history": "belum ada riwayat operasi.",
         "history_read_failed": "gagal membaca riwayat:",
@@ -121,6 +126,7 @@ TEXT = {
         "android": "android (termux)",
         "linux": "linux",
         "upload": "upload",
+        "update": "update",
         "delete": "delete",
         "history": "history",
         "status": "repository status",
@@ -132,6 +138,7 @@ TEXT = {
         "filename_empty": "filename is empty.",
         "invalid_choice": "invalid choice.",
         "upload_test": "upload test",
+        "update_test": "update test",
         "delete_test": "delete test",
         "select_file": "select file",
         "current_folder": "current folder",
@@ -157,9 +164,12 @@ TEXT = {
         "commit_failed": "commit failed.",
         "push_failed": "push failed.",
         "upload_success": "upload successful.",
+        "update_success": "update successful.",
         "delete_success": "delete successful.",
         "file_exists": "file already exists in repository.",
         "file_not_found": "file not found in repository.",
+        "select_target_file": "select target file in repository",
+        "replacing_file": "replacing old file with new file...",
         "no_files": "no selectable files.",
         "no_history": "no operation history.",
         "history_read_failed": "failed to read history:",
@@ -657,7 +667,12 @@ def commit_and_push(repo, filename, action, language, repository):
         return False
 
     save_history(action, filename, "SUCCESS", repository)
-    message = "upload_success" if action == "Upload" else "delete_success"
+    if action == "Upload":
+        message = "upload_success"
+    elif action == "Update":
+        message = "update_success"
+    else:
+        message = "delete_success"
     print(f"\n{color(t(language, message), GREEN)}")
     return True
 
@@ -718,6 +733,333 @@ def upload_test(language, platform):
     except Exception as error:
         print(f"\n{color('error:', RED)} {error}")
         save_history("Upload", selected_file.name, "FAILED", repository)
+
+    pause(language)
+
+
+# ═════════════════════════════════════
+# UPDATE
+# ═════════════════════════════════════
+
+def get_github_file_info(repository, file_path, language):
+    """
+    Get file metadata from GitHub without cloning the repository.
+    """
+    endpoint = f"repos/{repository}/contents/{file_path}"
+
+    result = run_command(
+        "gh",
+        "api",
+        endpoint,
+    )
+
+    if result is None:
+        print(f"\n{color(t(language, 'github_required'), RED)}")
+        return None
+
+    if result.returncode != 0:
+        error = result.stderr.strip()
+        print(
+            f"\n{color('error:', RED)} "
+            f"{error or t(language, 'file_not_found')}"
+        )
+        return None
+
+    try:
+        return json.loads(result.stdout or "{}")
+    except json.JSONDecodeError as error:
+        print(f"\n{color('error:', RED)} {error}")
+        return None
+
+
+def get_repository_tree(repository, language):
+    """
+    Get repository file paths through GitHub's recursive tree API.
+    No clone is performed.
+    """
+    try:
+        repo_info = run_command(
+            "gh",
+            "api",
+            f"repos/{repository}",
+        )
+
+        if repo_info is None or repo_info.returncode != 0:
+            return []
+
+        data = json.loads(repo_info.stdout or "{}")
+        branch = data.get("default_branch", "main")
+
+        branch_info = run_command(
+            "gh",
+            "api",
+            f"repos/{repository}/git/ref/heads/{branch}",
+        )
+
+        if branch_info is None or branch_info.returncode != 0:
+            return []
+
+        branch_data = json.loads(branch_info.stdout or "{}")
+        sha = branch_data.get("object", {}).get("sha")
+
+        if not sha:
+            return []
+
+        tree_result = run_command(
+            "gh",
+            "api",
+            f"repos/{repository}/git/trees/{sha}?recursive=1",
+        )
+
+        if tree_result is None or tree_result.returncode != 0:
+            return []
+
+        tree_data = json.loads(tree_result.stdout or "{}")
+
+        return sorted(
+            [
+                item["path"]
+                for item in tree_data.get("tree", [])
+                if item.get("type") == "blob"
+            ],
+            key=str.lower,
+        )
+
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return []
+
+
+def choose_remote_file(language, repository):
+    """
+    Show files in the selected GitHub repository and return a target path.
+    """
+    clear_screen()
+    header(t(language, "select_target_file"))
+
+    print(
+        color(
+            t(language, "fetching_file"),
+            DIM
+        )
+    )
+
+    files = get_repository_tree(
+        repository,
+        language
+    )
+
+    if not files:
+        print(
+            f"\n{color(t(language, 'no_files'), DIM)}"
+        )
+        pause(language)
+        return None
+
+    print()
+
+    for number, file_path in enumerate(files, 1):
+        print(
+            f"{color(f'[{number}]', YELLOW)} "
+            f"{color(file_path, WHITE)}"
+        )
+
+    print()
+    print(
+        f"{color('[0]', RED)} "
+        f"{t(language, 'cancel')}"
+    )
+
+    while True:
+        choice = input(
+            f"\n{color(APP_NAME, CYAN)} "
+            f"{color('>', GREEN)} "
+        ).strip()
+
+        if choice == "0":
+            return None
+
+        if not choice.isdigit():
+            print(
+                f"\n{color(t(language, 'invalid_choice'), RED)}"
+            )
+            continue
+
+        index = int(choice) - 1
+
+        if not 0 <= index < len(files):
+            print(
+                f"\n{color(t(language, 'invalid_choice'), RED)}"
+            )
+            continue
+
+        return files[index]
+
+
+def update_file_via_github_api(
+    selected_file,
+    repository,
+    target_path,
+    language,
+):
+    """
+    Replace an existing GitHub file directly through the Contents API.
+
+    The local file is uploaded as base64 through `gh api`.
+    GitHub creates the commit and updates the target file.
+    """
+    info = get_github_file_info(
+        repository,
+        target_path,
+        language
+    )
+
+    if not info:
+        return False
+
+    sha = info.get("sha")
+
+    if not sha:
+        print(
+            f"\n{color('error:', RED)} "
+            f"{t(language, 'file_not_found')}"
+        )
+        return False
+
+    try:
+        import base64
+
+        encoded = base64.b64encode(
+            selected_file.read_bytes()
+        ).decode("ascii")
+
+    except Exception as error:
+        print(
+            f"\n{color('error:', RED)} "
+            f"{t(language, 'copy_failed')} {error}"
+        )
+        return False
+
+    message = f"Update {target_path}"
+
+    # Use stdin for the API payload so the file content does not
+    # become a huge shell argument.
+    payload = json.dumps(
+        {
+            "message": message,
+            "content": encoded,
+            "sha": sha,
+        },
+        ensure_ascii=False,
+    )
+
+    print(
+        f"\n{color(t(language, 'updating_file'), DIM)}"
+    )
+
+    result = subprocess.run(
+        [
+            "gh",
+            "api",
+            "-X",
+            "PUT",
+            f"repos/{repository}/contents/{target_path}",
+            "--input",
+            "-",
+        ],
+        input=payload,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    if result.stdout:
+        print(result.stdout)
+
+    if result.stderr:
+        print(result.stderr)
+
+    if result.returncode != 0:
+        return False
+
+    return True
+
+
+def update_test(language, platform):
+    """
+    Fast update:
+    local file -> selected GitHub repository file,
+    without cloning the repository.
+    """
+    selected_file = choose_file(
+        language,
+        platform
+    )
+
+    if selected_file is None:
+        return
+
+    repository = choose_github_repository(
+        language
+    )
+
+    if repository is None:
+        return
+
+    target_path = choose_remote_file(
+        language,
+        repository
+    )
+
+    if target_path is None:
+        return
+
+    clear_screen()
+    header(t(language, "update_test"))
+
+    print(
+        f"{color(t(language, 'file_selected'), DIM)} "
+        f"{color(str(selected_file), CYAN)}"
+    )
+
+    print(
+        f"{color(t(language, 'repository_selected'), DIM)} "
+        f"{color(repository, CYAN)}"
+    )
+
+    print(
+        f"{color(t(language, 'select_target_file'), DIM)} "
+        f"{color(target_path, YELLOW)}"
+    )
+
+    success = update_file_via_github_api(
+        selected_file,
+        repository,
+        target_path,
+        language,
+    )
+
+    if success:
+        save_history(
+            "Update",
+            target_path,
+            "SUCCESS",
+            repository
+        )
+
+        print(
+            f"\n{color(t(language, 'update_success'), GREEN)}"
+        )
+    else:
+        save_history(
+            "Update",
+            target_path,
+            "FAILED",
+            repository
+        )
+
+        print(
+            f"\n{color(t(language, 'operation_failed'), RED)}"
+        )
 
     pause(language)
 
@@ -891,11 +1233,12 @@ def main_menu(language, platform):
         print()
 
         print(f"{color('[1]', YELLOW)} {t(language, 'upload_test')}")
-        print(f"{color('[2]', YELLOW)} {t(language, 'delete_test')}")
-        print(f"{color('[3]', YELLOW)} {t(language, 'history')}")
-        print(f"{color('[4]', YELLOW)} {t(language, 'status')}")
-        print(f"{color('[5]', YELLOW)} {t(language, 'change_language')}")
-        print(f"{color('[6]', YELLOW)} {t(language, 'change_device')}")
+        print(f"{color('[2]', YELLOW)} {t(language, 'update_test')}")
+        print(f"{color('[3]', YELLOW)} {t(language, 'delete_test')}")
+        print(f"{color('[4]', YELLOW)} {t(language, 'history')}")
+        print(f"{color('[5]', YELLOW)} {t(language, 'status')}")
+        print(f"{color('[6]', YELLOW)} {t(language, 'change_language')}")
+        print(f"{color('[7]', YELLOW)} {t(language, 'change_device')}")
         print(f"{color('[0]', RED)} {t(language, 'exit')}")
 
         choice = input(f"\n{color(APP_NAME, CYAN)} {color('>', GREEN)} ").strip().lower()
@@ -903,14 +1246,16 @@ def main_menu(language, platform):
         if choice == "1":
             upload_test(language, platform)
         elif choice == "2":
-            delete_test(language)
+            update_test(language, platform)
         elif choice == "3":
-            show_history(language)
+            delete_test(language)
         elif choice == "4":
-            repository_status(language)
+            show_history(language)
         elif choice == "5":
-            language = choose_language()
+            repository_status(language)
         elif choice == "6":
+            language = choose_language()
+        elif choice == "7":
             platform = choose_platform(language)
         elif choice == "0" or choice == "x":
             clear_screen()
