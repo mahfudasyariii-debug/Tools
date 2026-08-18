@@ -116,6 +116,10 @@ TEXT = {
         "repo_clean": "repository bersih, tidak ada perubahan.",
         "repo_changes": "perubahan terdeteksi.",
         "configuring_identity": "mengatur identitas commit...",
+        "fetching_file": "mengambil daftar file dari GitHub...",
+        "updating_file": "memperbarui file di GitHub...",
+        "uploading_file": "mengunggah file ke GitHub...",
+        "deleting_file": "menghapus file dari GitHub...",
     },
     "en": {
         "language": "language",
@@ -192,6 +196,10 @@ TEXT = {
         "repo_clean": "repository is clean, no changes.",
         "repo_changes": "changes detected.",
         "configuring_identity": "configuring commit identity...",
+        "fetching_file": "fetching files from GitHub...",
+        "updating_file": "updating file on GitHub...",
+        "uploading_file": "uploading file to GitHub...",
+        "deleting_file": "deleting file from GitHub...",
     },
 }
 
@@ -681,6 +689,63 @@ def commit_and_push(repo, filename, action, language, repository):
 # UPLOAD
 # ═════════════════════════════════════
 
+def upload_file_via_github_api(selected_file, repository, target_path, language):
+    """
+    Upload a new file directly through GitHub's Contents API.
+    No repository clone is required.
+    """
+    existing = get_github_file_info(repository, target_path, language)
+    if existing is not None:
+        print(f"\n{color(t(language, 'file_exists'), YELLOW)}")
+        return False
+
+    try:
+        import base64
+        encoded = base64.b64encode(selected_file.read_bytes()).decode("ascii")
+    except Exception as error:
+        print(
+            f"\n{color('error:', RED)} "
+            f"{t(language, 'copy_failed')} {error}"
+        )
+        return False
+
+    payload = json.dumps(
+        {
+            "message": f"Upload {target_path}",
+            "content": encoded,
+        },
+        ensure_ascii=False,
+    )
+
+    print(f"\n{color(t(language, 'uploading_file'), DIM)}")
+
+    result = subprocess.run(
+        [
+            "gh",
+            "api",
+            "-X",
+            "PUT",
+            f"repos/{repository}/contents/{target_path}",
+            "--input",
+            "-",
+        ],
+        input=payload,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print(result.stderr)
+
+    if result.returncode != 0:
+        return False
+
+    return True
+
+
 def upload_test(language, platform):
     selected_file = choose_file(language, platform)
     if selected_file is None:
@@ -692,47 +757,39 @@ def upload_test(language, platform):
 
     clear_screen()
     header(t(language, "upload_test"))
-    print(f"{color(t(language, 'file_selected'), DIM)} {color(str(selected_file), CYAN)}")
-    print(f"{color(t(language, 'repository_selected'), DIM)} {color(repository, CYAN)}")
+    print(
+        f"{color(t(language, 'file_selected'), DIM)} "
+        f"{color(str(selected_file), CYAN)}"
+    )
+    print(
+        f"{color(t(language, 'repository_selected'), DIM)} "
+        f"{color(repository, CYAN)}"
+    )
 
-    try:
-        with tempfile.TemporaryDirectory(prefix="ghremote_") as temp:
-            workspace = Path(temp) / "repo"
-            print(f"\n{color(t(language, 'workspace'), DIM)}")
-            print(color(str(workspace), DIM))
+    target_path = selected_file.name
+    success = upload_file_via_github_api(
+        selected_file,
+        repository,
+        target_path,
+        language,
+    )
 
-            if not clone_repository(repository, workspace, language):
-                save_history("Upload", selected_file.name, "FAILED", repository)
-                pause(language)
-                return
-
-            destination = workspace / selected_file.name
-            if destination.exists():
-                print(f"\n{color(t(language, 'file_exists'), YELLOW)}")
-                save_history("Upload", selected_file.name, "FAILED", repository)
-                pause(language)
-                return
-
-            print(f"\n{color(t(language, 'copying_file'), DIM)}")
-            try:
-                shutil.copy2(selected_file, destination)
-            except Exception as error:
-                print(f"\n{color(t(language, 'copy_failed'), RED)} {error}")
-                save_history("Upload", selected_file.name, "FAILED", repository)
-                pause(language)
-                return
-
-            commit_and_push(
-                workspace,
-                selected_file.name,
-                "Upload",
-                language,
-                repository,
-            )
-
-    except Exception as error:
-        print(f"\n{color('error:', RED)} {error}")
-        save_history("Upload", selected_file.name, "FAILED", repository)
+    if success:
+        save_history(
+            "Upload",
+            target_path,
+            "SUCCESS",
+            repository,
+        )
+        print(f"\n{color(t(language, 'upload_success'), GREEN)}")
+    else:
+        save_history(
+            "Upload",
+            target_path,
+            "FAILED",
+            repository,
+        )
+        print(f"\n{color(t(language, 'operation_failed'), RED)}")
 
     pause(language)
 
@@ -1068,59 +1125,102 @@ def update_test(language, platform):
 # DELETE
 # ═════════════════════════════════════
 
+def delete_file_via_github_api(repository, target_path, language):
+    """
+    Delete a GitHub repository file directly through the Contents API.
+    No repository clone is required.
+    """
+    info = get_github_file_info(repository, target_path, language)
+    if not info:
+        return False
+
+    sha = info.get("sha")
+    if not sha:
+        print(
+            f"\n{color('error:', RED)} "
+            f"{t(language, 'file_not_found')}"
+        )
+        return False
+
+    payload = json.dumps(
+        {
+            "message": f"Delete {target_path}",
+            "sha": sha,
+        },
+        ensure_ascii=False,
+    )
+
+    print(f"\n{color(t(language, 'deleting_file'), DIM)}")
+
+    result = subprocess.run(
+        [
+            "gh",
+            "api",
+            "-X",
+            "DELETE",
+            f"repos/{repository}/contents/{target_path}",
+            "--input",
+            "-",
+        ],
+        input=payload,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print(result.stderr)
+
+    if result.returncode != 0:
+        return False
+
+    return True
+
+
 def delete_test(language):
     repository = choose_github_repository(language)
     if repository is None:
         return
 
+    target_path = choose_remote_file(language, repository)
+    if target_path is None:
+        return
+
     clear_screen()
     header(t(language, "delete_test"))
-    print(color(t(language, "cloning"), DIM))
+    print(
+        f"{color(t(language, 'repository_selected'), DIM)} "
+        f"{color(repository, CYAN)}"
+    )
+    print(
+        f"{color(t(language, 'file_selected'), DIM)} "
+        f"{color(target_path, YELLOW)}"
+    )
 
-    try:
-        with tempfile.TemporaryDirectory(prefix="ghremote_") as temp:
-            workspace = Path(temp) / "repo"
+    success = delete_file_via_github_api(
+        repository,
+        target_path,
+        language,
+    )
 
-            if not clone_repository(repository, workspace, language):
-                save_history("Delete", "-", "FAILED", repository)
-                pause(language)
-                return
-
-            selected_file = choose_repo_file(language, workspace)
-            if selected_file is None:
-                return
-
-            relative_name = str(selected_file.relative_to(workspace))
-            print(
-                f"\n{color(t(language, 'file_selected'), DIM)} "
-                f"{color(relative_name, CYAN)}"
-            )
-
-            try:
-                selected_file.unlink()
-            except FileNotFoundError:
-                print(f"\n{color(t(language, 'file_not_found'), RED)}")
-                save_history("Delete", relative_name, "FAILED", repository)
-                pause(language)
-                return
-            except Exception as error:
-                print(f"\n{color(t(language, 'operation_failed'), RED)} {error}")
-                save_history("Delete", relative_name, "FAILED", repository)
-                pause(language)
-                return
-
-            print(f"\n{color(t(language, 'removing_file'), DIM)}")
-            commit_and_push(
-                workspace,
-                relative_name,
-                "Delete",
-                language,
-                repository,
-            )
-
-    except Exception as error:
-        print(f"\n{color('error:', RED)} {error}")
-        save_history("Delete", "-", "FAILED", repository)
+    if success:
+        save_history(
+            "Delete",
+            target_path,
+            "SUCCESS",
+            repository,
+        )
+        print(f"\n{color(t(language, 'delete_success'), GREEN)}")
+    else:
+        save_history(
+            "Delete",
+            target_path,
+            "FAILED",
+            repository,
+        )
+        print(f"\n{color(t(language, 'operation_failed'), RED)}")
 
     pause(language)
 
