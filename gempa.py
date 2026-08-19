@@ -1,128 +1,118 @@
-#!/usr/bin/env python3
-
-import json
+import requests
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
-try:
-    import requests
-except ImportError:
-    print("Module requests belum terpasang.")
-    print("Install dengan: pip install requests")
-    raise SystemExit(1)
+URL = "https://data.bmkg.go.id/DataMKG/TEWS/autogempa.json"
 
+last_event = None
 
-API_URL = "https://data.bmkg.go.id/DataMKG/TEWS/autogempa.json"
-INTERVAL = 60
-
-
-def waktu_sekarang():
-    return datetime.now().strftime("%H:%M:%S")
+print("=============================================")
+print("       MONITOR GEMPA BMKG - REALTIME")
+print("=============================================")
+print("Polling setiap 2 detik...")
+print("Tekan CTRL+C untuk berhenti.\n")
 
 
 def ambil_data():
     try:
-        response = requests.get(API_URL, timeout=15)
-        response.raise_for_status()
-        return response.json()
+        r = requests.get(
+            URL,
+            timeout=10,
+            headers={
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+                "User-Agent": "GempaMonitor/1.0"
+            }
+        )
 
-    except requests.RequestException as e:
-        print(f"[{waktu_sekarang()}] Gagal mengambil data: {e}")
+        r.raise_for_status()
+        return r.json()["Infogempa"]["gempa"]
+
+    except Exception as e:
+        print(f"[ERROR] {e}")
         return None
 
-    except json.JSONDecodeError:
-        print(f"[{waktu_sekarang()}] Respons BMKG bukan JSON yang valid.")
-        return None
 
+def tampilkan(gempa):
+    tanggal = gempa.get("Tanggal", "-")
+    jam_wib = gempa.get("Jam", "-")
 
-def tampilkan_gempa(gempa):
-    print()
-    print("=" * 45)
+    # BMKG memberikan waktu dalam WIB.
+    # Konversi ke WITA.
+    try:
+        dt = datetime.strptime(
+            f"{tanggal} {jam_wib}",
+            "%d %b %Y %H:%M:%S"
+        )
+
+        dt_wita = dt + timedelta(hours=1)
+        waktu_wita = dt_wita.strftime("%d %b %Y %H:%M:%S WITA")
+
+    except:
+        waktu_wita = f"{tanggal} {jam_wib} WIB"
+
+    print("\n=============================================")
     print("          GEMPA TERDETEKSI")
-    print("=" * 45)
-
-    print(f"Tanggal    : {gempa.get('Tanggal', '-')}")
-    print(f"Jam        : {gempa.get('Jam', '-')}")
+    print("=============================================")
+    print(f"Tanggal    : {tanggal}")
+    print(f"Jam        : {waktu_wita}")
     print(f"Magnitudo  : {gempa.get('Magnitude', '-')}")
     print(f"Kedalaman  : {gempa.get('Kedalaman', '-')}")
-    print(f"Koordinat  : {gempa.get('Lintang', '-')} "
-          f"{gempa.get('Bujur', '-')}")
+    print(f"Koordinat  : {gempa.get('Coordinates', '-')}")
     print(f"Wilayah    : {gempa.get('Wilayah', '-')}")
     print(f"Potensi    : {gempa.get('Potensi', '-')}")
     print(f"Dirasakan  : {gempa.get('Dirasakan', '-')}")
-    print("=" * 45)
+    print("=============================================")
     print("Sumber data: BMKG")
+    print("=============================================\n")
 
 
-def identitas_gempa(gempa):
-    """
-    Membuat identitas sederhana agar gempa yang sama
-    tidak dianggap sebagai gempa baru setiap menit.
-    """
-    return (
-        gempa.get("DateTime")
-        or (
-            gempa.get("Tanggal", ""),
-            gempa.get("Jam", ""),
-            gempa.get("Magnitude", ""),
-            gempa.get("Lintang", ""),
-            gempa.get("Bujur", "")
-        )
+# Ambil data pertama sebagai data awal.
+# Supaya gempa lama tidak dianggap gempa baru.
+gempa_awal = ambil_data()
+
+if gempa_awal:
+    last_event = (
+        gempa_awal.get("Tanggal"),
+        gempa_awal.get("Jam"),
+        gempa_awal.get("Magnitude"),
+        gempa_awal.get("Coordinates")
     )
 
+    print(
+        f"[{datetime.now().strftime('%H:%M:%S')}] "
+        f"Monitoring dimulai | Gempa terakhir: "
+        f"{gempa_awal.get('Tanggal')} {gempa_awal.get('Jam')}"
+    )
+else:
+    print("[START] Belum mendapatkan data BMKG.")
 
-def main():
-    print("=============================================")
-    print("        MONITOR GEMPA BMKG")
-    print("=============================================")
-    print("Polling data setiap 60 detik.")
-    print("Tekan Ctrl+C untuk berhenti.")
-    print("Sumber data: BMKG")
-    print()
 
-    gempa_terakhir = None
+while True:
+    gempa = ambil_data()
 
-    while True:
-        sekarang = waktu_sekarang()
+    if gempa:
+        event_id = (
+            gempa.get("Tanggal"),
+            gempa.get("Jam"),
+            gempa.get("Magnitude"),
+            gempa.get("Coordinates")
+        )
 
-        data = ambil_data()
+        if event_id != last_event:
+            tampilkan(gempa)
+            last_event = event_id
 
-        if data is None:
-            print(f"[{sekarang}] Data tidak tersedia.")
         else:
-            gempa = data.get("Infogempa", {}).get("gempa")
+            print(
+                f"[{datetime.now().strftime('%H:%M:%S')}] "
+                f"Tidak ada gempa baru"
+            )
 
-            if not gempa:
-                print(f"[{sekarang}] Data gempa kosong.")
-            else:
-                identitas = identitas_gempa(gempa)
+    else:
+        print(
+            f"[{datetime.now().strftime('%H:%M:%S')}] "
+            f"Gagal mengambil data"
+        )
 
-                if gempa_terakhir is None:
-                    # Data pertama hanya dijadikan baseline.
-                    gempa_terakhir = identitas
-                    print(f"[{sekarang}] Data awal diterima.")
-                    print(
-                        f"Gempa terakhir BMKG: "
-                        f"M{gempa.get('Magnitude', '-')}, "
-                        f"{gempa.get('Wilayah', '-')}"
-                    )
-
-                elif identitas != gempa_terakhir:
-                    tampilkan_gempa(gempa)
-                    gempa_terakhir = identitas
-
-                else:
-                    print(f"[{sekarang}] Data tidak ada")
-
-        print(f"Menunggu {INTERVAL} detik...")
-        print()
-
-        try:
-            time.sleep(INTERVAL)
-        except KeyboardInterrupt:
-            print("\nMonitor dihentikan.")
-            break
-
-
-if __name__ == "__main__":
-    main()
+    time.sleep(2)
