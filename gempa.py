@@ -1,6 +1,7 @@
 import requests
 import time
 import os
+import subprocess
 from datetime import datetime, timedelta
 
 
@@ -144,6 +145,62 @@ def warna_magnitudo(magnitude):
 
 
 # ============================================================
+# NOTIFIKASI
+# ============================================================
+
+def notifikasi_gempa(gempa):
+
+    try:
+
+        magnitude = gempa.get(
+            "Magnitude",
+            "-"
+        )
+
+        kedalaman = gempa.get(
+            "Kedalaman",
+            "-"
+        )
+
+        wilayah = gempa.get(
+            "Wilayah",
+            "Wilayah tidak diketahui"
+        )
+
+        isi = (
+            f"M{magnitude} | "
+            f"{kedalaman} | "
+            f"{wilayah}"
+        )
+
+        subprocess.Popen(
+            [
+                "termux-notification",
+
+                "--title",
+                "⚠️ EARTHQUAKE!",
+
+                "--content",
+                isi,
+
+                "--priority",
+                "high",
+
+                "--sound",
+
+                "--vibrate",
+                "500,200,500"
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+    except Exception:
+
+        pass
+
+
+# ============================================================
 # AMBIL DATA BMKG
 # ============================================================
 
@@ -214,8 +271,6 @@ def proses_gempa(gempa):
 
     except Exception:
 
-        dt_wita = None
-
         waktu_bmkg = (
             f"{tanggal} {jam}"
         )
@@ -229,40 +284,18 @@ def proses_gempa(gempa):
 
 
     # ========================================================
-    # HITUNG DELAY
-    # ========================================================
-
-    if dt_wita:
-
-        delay = (
-            waktu_terdeteksi -
-            dt_wita
-        )
-
-        delay_text = (
-            str(delay)
-            .split(".")[0]
-        )
-
-    else:
-
-        delay_text = "Tidak diketahui"
-
-
-    # ========================================================
-    # BUAT DATA RIWAYAT
+    # DATA RIWAYAT
     # ========================================================
 
     data_riwayat = {
 
-        "waktu_bmkg": waktu_bmkg,
+        "waktu_bmkg":
+            waktu_bmkg,
 
         "waktu_terdeteksi":
             waktu_terdeteksi.strftime(
                 "%d %b %Y %H:%M:%S"
             ) + " WITA",
-
-        "delay": delay_text,
 
         "magnitudo":
             gempa.get(
@@ -312,20 +345,9 @@ def tampilkan_gempa(gempa):
 
     data = proses_gempa(gempa)
 
-    # Simpan ke riwayat
     riwayat_gempa.append(data)
 
-
-    # ========================================================
-    # HAPUS STATUS MONITORING
-    # ========================================================
-
     print("\r\033[K")
-
-
-    # ========================================================
-    # HEADER
-    # ========================================================
 
     print(
         f"{RED}"
@@ -335,7 +357,7 @@ def tampilkan_gempa(gempa):
 
     print(
         f"{RED}{BOLD}"
-        "          ⚠ GEMPA TERDETEKSI"
+        "          ⚠ EARTHQUAKE! ⚠"
         f"{RESET}"
     )
 
@@ -346,11 +368,6 @@ def tampilkan_gempa(gempa):
     )
 
     print()
-
-
-    # ========================================================
-    # WAKTU
-    # ========================================================
 
     print(
         f"{YELLOW}Waktu BMKG :{RESET} "
@@ -362,17 +379,7 @@ def tampilkan_gempa(gempa):
         f"{data['waktu_terdeteksi']}"
     )
 
-    print(
-        f"{YELLOW}Delay      :{RESET} "
-        f"{data['delay']}"
-    )
-
     print()
-
-
-    # ========================================================
-    # DATA GEMPA
-    # ========================================================
 
     print(
         f"{RED}Magnitudo  :{RESET} "
@@ -405,11 +412,6 @@ def tampilkan_gempa(gempa):
     )
 
     print()
-
-
-    # ========================================================
-    # FOOTER
-    # ========================================================
 
     print(
         f"{GRAY}"
@@ -458,11 +460,6 @@ def tampilkan_riwayat():
 
     print()
 
-
-    # ========================================================
-    # BELUM ADA RIWAYAT
-    # ========================================================
-
     if not riwayat_gempa:
 
         print(
@@ -479,11 +476,6 @@ def tampilkan_riwayat():
 
         return
 
-
-    # ========================================================
-    # JUMLAH GEMPA
-    # ========================================================
-
     print(
         f"{GREEN}"
         f"Total gempa terdeteksi: "
@@ -492,11 +484,6 @@ def tampilkan_riwayat():
     )
 
     print()
-
-
-    # ========================================================
-    # TAMPILKAN SEMUA RIWAYAT
-    # ========================================================
 
     for nomor, data in enumerate(
         riwayat_gempa,
@@ -525,11 +512,6 @@ def tampilkan_riwayat():
         print(
             f"{YELLOW}Terdeteksi :{RESET} "
             f"{data['waktu_terdeteksi']}"
-        )
-
-        print(
-            f"{YELLOW}Delay      :{RESET} "
-            f"{data['delay']}"
         )
 
         print(
@@ -564,7 +546,6 @@ def tampilkan_riwayat():
 
         print()
 
-
     print(
         f"{GRAY}"
         "============================================="
@@ -587,11 +568,6 @@ def monitor_gempa():
     global last_event
 
     clear()
-
-
-    # ========================================================
-    # HEADER
-    # ========================================================
 
     print(
         f"{CYAN}"
@@ -638,13 +614,11 @@ def monitor_gempa():
 
     print()
 
-
     # ========================================================
     # DATA AWAL
     # ========================================================
 
     gempa_awal = ambil_gempa()
-
 
     if gempa_awal:
 
@@ -655,9 +629,7 @@ def monitor_gempa():
             gempa_awal.get("Coordinates")
         )
 
-
     print()
-
 
     # ========================================================
     # MONITORING
@@ -669,7 +641,6 @@ def monitor_gempa():
 
             gempa = ambil_gempa()
 
-
             if gempa:
 
                 event_id = (
@@ -678,7 +649,6 @@ def monitor_gempa():
                     gempa.get("Magnitude"),
                     gempa.get("Coordinates")
                 )
-
 
                 # ============================================
                 # GEMPA BARU
@@ -690,8 +660,12 @@ def monitor_gempa():
                         gempa
                     )
 
-                    last_event = event_id
+                    # 🔔 NOTIFIKASI
+                    notifikasi_gempa(
+                        gempa
+                    )
 
+                    last_event = event_id
 
             status(
                 f"[{datetime.now().strftime('%H:%M:%S')}] "
@@ -699,11 +673,6 @@ def monitor_gempa():
             )
 
             time.sleep(POLLING)
-
-
-    # ========================================================
-    # KEMBALI KE MENU
-    # ========================================================
 
     except KeyboardInterrupt:
 
@@ -771,28 +740,13 @@ def menu_utama():
             "Pilih : "
         ).strip()
 
-
-        # ====================================================
-        # MONITOR
-        # ====================================================
-
         if pilihan == "1":
 
             monitor_gempa()
 
-
-        # ====================================================
-        # RIWAYAT
-        # ====================================================
-
         elif pilihan == "2":
 
             tampilkan_riwayat()
-
-
-        # ====================================================
-        # KELUAR
-        # ====================================================
 
         elif pilihan == "0":
 
@@ -805,11 +759,6 @@ def menu_utama():
             )
 
             break
-
-
-        # ====================================================
-        # PILIHAN SALAH
-        # ====================================================
 
         else:
 
