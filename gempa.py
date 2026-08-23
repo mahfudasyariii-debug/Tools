@@ -2,6 +2,7 @@ import requests
 import time
 import os
 import subprocess
+import json
 from datetime import datetime, timedelta
 
 
@@ -17,6 +18,64 @@ last_event = None
 
 # Riwayat gempa selama tool berjalan
 riwayat_gempa = []
+
+# File penyimpanan riwayat
+FILE_RIWAYAT = "riwayat_gempa.json"
+
+
+# ============================================================
+# LOAD RIWAYAT
+# ============================================================
+
+def load_riwayat():
+
+    global riwayat_gempa
+
+    try:
+
+        if os.path.exists(FILE_RIWAYAT):
+
+            with open(
+                FILE_RIWAYAT,
+                "r",
+                encoding="utf-8"
+            ) as f:
+
+                data = json.load(f)
+
+                if isinstance(data, list):
+
+                    riwayat_gempa = data
+
+    except Exception:
+
+        riwayat_gempa = []
+
+
+# ============================================================
+# SIMPAN RIWAYAT
+# ============================================================
+
+def simpan_riwayat():
+
+    try:
+
+        with open(
+            FILE_RIWAYAT,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+            json.dump(
+                riwayat_gempa,
+                f,
+                indent=2,
+                ensure_ascii=False
+            )
+
+    except Exception:
+
+        pass
 
 
 # ============================================================
@@ -40,16 +99,8 @@ MAGENTA = "\033[95m"
 # ============================================================
 
 SPINNER = [
-    "⠋",
-    "⠙",
-    "⠹",
-    "⠸",
-    "⠼",
-    "⠴",
-    "⠦",
-    "⠧",
-    "⠇",
-    "⠏"
+    "⠋", "⠙", "⠹", "⠸", "⠼",
+    "⠴", "⠦", "⠧", "⠇", "⠏"
 ]
 
 spinner_index = 0
@@ -60,7 +111,6 @@ spinner_index = 0
 # ============================================================
 
 def clear():
-
     os.system(
         "cls"
         if os.name == "nt"
@@ -78,10 +128,15 @@ def status(teks):
 
     simbol = SPINNER[spinner_index]
 
-    print(
-        f"\r\033[K"
+    # Kembali ke awal baris dan hapus baris lama
+    output = (
+        f"\r\033[2K"
         f"{CYAN}{simbol}{RESET} "
-        f"{GREEN}{teks}{RESET}",
+        f"{GREEN}{teks}{RESET}"
+    )
+
+    print(
+        output,
         end="",
         flush=True
     )
@@ -89,6 +144,25 @@ def status(teks):
     spinner_index = (
         spinner_index + 1
     ) % len(SPINNER)
+
+
+# ============================================================
+# PINDAHKAN CURSOR KE BARIS BARU
+# ============================================================
+
+def new_line():
+    """
+    Mengakhiri baris status/spinner dengan aman.
+    Tidak menyebabkan newline ganda.
+    """
+
+    print(
+        "\r\033[2K",
+        end="",
+        flush=True
+    )
+
+    print()
 
 
 # ============================================================
@@ -196,7 +270,6 @@ def notifikasi_gempa(gempa):
         )
 
     except Exception:
-
         pass
 
 
@@ -245,7 +318,6 @@ def proses_gempa(gempa):
         "-"
     )
 
-
     # ========================================================
     # KONVERSI WIB -> WITA
     # ========================================================
@@ -275,13 +347,11 @@ def proses_gempa(gempa):
             f"{tanggal} {jam}"
         )
 
-
     # ========================================================
     # WAKTU TERDETEKSI
     # ========================================================
 
     waktu_terdeteksi = datetime.now()
-
 
     # ========================================================
     # DATA RIWAYAT
@@ -347,7 +417,11 @@ def tampilkan_gempa(gempa):
 
     riwayat_gempa.append(data)
 
-    print("\r\033[K")
+    # Simpan riwayat ke file
+    simpan_riwayat()
+
+    # Bersihkan baris spinner tanpa membuat newline tambahan
+    new_line()
 
     print(
         f"{RED}"
@@ -629,8 +703,6 @@ def monitor_gempa():
             gempa_awal.get("Coordinates")
         )
 
-    print()
-
     # ========================================================
     # MONITORING
     # ========================================================
@@ -660,7 +732,7 @@ def monitor_gempa():
                         gempa
                     )
 
-                    # 🔔 NOTIFIKASI
+                    # Notifikasi
                     notifikasi_gempa(
                         gempa
                     )
@@ -676,8 +748,7 @@ def monitor_gempa():
 
     except KeyboardInterrupt:
 
-        print()
-        print()
+        new_line()
 
         print(
             f"{YELLOW}"
@@ -778,5 +849,8 @@ def menu_utama():
 # ============================================================
 
 if __name__ == "__main__":
+
+    # Load riwayat yang sudah tersimpan
+    load_riwayat()
 
     menu_utama()
